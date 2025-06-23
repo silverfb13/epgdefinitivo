@@ -1,4 +1,4 @@
-name: Atualizar e Unificar EPGs a cada 6 horas
+name: Atualizar EPG sem canais duplicados
 
 on:
   schedule:
@@ -10,8 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout do seu repositório
+      - name: Checkout do repositório
         uses: actions/checkout@v3
+
+      - name: Instalar XMLStarlet
+        run: sudo apt-get install xmlstarlet
 
       - name: Baixar epg.xml
         run: curl -L "https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/epg.xml" -o epg.xml
@@ -25,14 +28,31 @@ jobs:
       - name: Baixar vivoplay.xml
         run: curl -L "https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/vivoplay.xml" -o vivoplay.xml
 
-      - name: Unificar os 4 XMLs em epg-final.xml
+      - name: Unificar e remover canais duplicados
         run: |
           echo '<?xml version="1.0" encoding="utf-8"?>' > epg-final.xml
           echo '<!DOCTYPE tv SYSTEM "xmltv.dtd">' >> epg-final.xml
           echo '<tv generator-info-name="PAINEL UHD">' >> epg-final.xml
 
+          touch canais_ids.txt
+
           for file in epg.xml claro.xml globo.xml vivoplay.xml; do
-            sed '1d;/<!DOCTYPE/d;/<tv /d;/<\/tv>/d' "$file" >> epg-final.xml
+            # Adicionar canais únicos
+            xmlstarlet sel -t -m "//channel" -c . -n "$file" | while read -r line; do
+              channel_id=$(echo "$line" | xmlstarlet sel -t -v "//channel/@id" 2>/dev/null)
+              if ! grep -q "^$channel_id$" canais_ids.txt; then
+                echo "$line" >> epg-final.xml
+                echo "$channel_id" >> canais_ids.txt
+              fi
+            done
+
+            # Adicionar programas apenas dos canais que já estão no XML final
+            xmlstarlet sel -t -m "//programme" -c . -n "$file" | while read -r prog; do
+              channel_prog=$(echo "$prog" | xmlstarlet sel -t -v "//programme/@channel" 2>/dev/null)
+              if grep -q "^$channel_prog$" canais_ids.txt; then
+                echo "$prog" >> epg-final.xml
+              fi
+            done
           done
 
           echo '</tv>' >> epg-final.xml
@@ -42,12 +62,12 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
 
-      - name: Fazer commit apenas se houver mudanças
+      - name: Commit apenas se houver alteração
         run: |
           git add epg-final.xml
           if git diff --cached --quiet; then
-            echo "Nenhuma alteração detectada no epg-final.xml."
+            echo "Nenhuma alteração detectada."
             exit 0
           fi
-          git commit -m "EPG final unificado atualizado automaticamente [$(date '+%Y-%m-%d %H:%M:%S')]"
+          git commit -m "EPG final (sem canais duplicados) atualizado [$(date '+%Y-%m-%d %H:%M:%S')]"
           git push
