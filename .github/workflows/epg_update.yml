@@ -2,7 +2,7 @@ name: Gerar EPG Final Sem Canais Duplicados
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # A cada 6 horas, nos minutos 00
+    - cron: '0 */6 * * *'  # A cada 6 horas, sempre no minuto 00
   workflow_dispatch:
 
 jobs:
@@ -35,17 +35,19 @@ jobs:
           for file in epg.xml claro.xml globo.xml vivoplay.xml; do
             xmlstarlet sel -t -m "//channel" -v "@id" -n "$file" | while IFS= read -r id; do
               if [ -n "$id" ] && ! grep -Fxq "$id" canais_ids.txt; then
-                xmlstarlet sel -t -m "//channel[@id='$id']" -c . -n "$file" >> epg-final.xml
+                xmlstarlet sel -t -m "//channel[@id='$id']" -c . "$file" >> epg-final.xml
+                echo "" >> epg-final.xml  # Adicionar quebra de linha entre os channels
                 echo "$id" >> canais_ids.txt
               fi
             done
           done
 
-          # Parte 2: Adicionar programmes apenas dos canais únicos
+          # Parte 2: Adicionar programmes apenas dos canais que ficaram no epg-final.xml
           for file in epg.xml claro.xml globo.xml vivoplay.xml; do
             xmlstarlet sel -t -m "//programme" -v "@channel" -n "$file" | sort -u | while IFS= read -r channel; do
               if grep -Fxq "$channel" canais_ids.txt; then
-                xmlstarlet sel -t -m "//programme[@channel='$channel']" -c . -n "$file" >> epg-final.xml
+                xmlstarlet sel -t -m "//programme[@channel='$channel']" -c . "$file" >> epg-final.xml
+                echo "" >> epg-final.xml  # Adicionar quebra de linha entre os programmes
               fi
             done
           done
