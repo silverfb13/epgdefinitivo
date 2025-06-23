@@ -1,0 +1,53 @@
+name: Atualizar e Unificar EPGs a cada 6 horas
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Executa a cada 6 horas (00:00, 06:00, 12:00, 18:00)
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do seu repositório
+        uses: actions/checkout@v3
+
+      - name: Baixar epg.xml
+        run: curl -L "https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/epg.xml" -o epg.xml
+
+      - name: Baixar claro.xml
+        run: curl -L "https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/claro.xml" -o claro.xml
+
+      - name: Baixar globo.xml
+        run: curl -L "https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/globo.xml" -o globo.xml
+
+      - name: Baixar vivoplay.xml
+        run: curl -L "https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/vivoplay.xml" -o vivoplay.xml
+
+      - name: Unificar os 4 XMLs em epg-final.xml
+        run: |
+          echo '<?xml version="1.0" encoding="utf-8"?>' > epg-final.xml
+          echo '<!DOCTYPE tv SYSTEM "xmltv.dtd">' >> epg-final.xml
+          echo '<tv generator-info-name="PAINEL UHD">' >> epg-final.xml
+
+          for file in epg.xml claro.xml globo.xml vivoplay.xml; do
+            sed '1d;/<!DOCTYPE/d;/<tv /d;/<\/tv>/d' "$file" >> epg-final.xml
+          done
+
+          echo '</tv>' >> epg-final.xml
+
+      - name: Configurar Git
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      - name: Fazer commit apenas se houver mudanças
+        run: |
+          git add epg-final.xml
+          if git diff --cached --quiet; then
+            echo "Nenhuma alteração detectada no epg-final.xml."
+            exit 0
+          fi
+          git commit -m "EPG final unificado atualizado automaticamente [$(date '+%Y-%m-%d %H:%M:%S')]"
+          git push
