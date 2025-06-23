@@ -1,13 +1,13 @@
-name: Atualizar EPG
+name: Atualizar EPG merge diário
 
 on:
   schedule:
-    # Roda a cada 6 horas nos horários terminados em 00 (ex: 00:00, 06:00, 12:00, 18:00)
+    # A cada 6 horas: 0,6,12,18
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
-  build:
+  merge-epg:
     runs-on: ubuntu-latest
 
     steps:
@@ -17,14 +17,14 @@ jobs:
     - name: Instalar xmlstarlet
       run: sudo apt-get update && sudo apt-get install -y xmlstarlet
 
-    - name: Baixar arquivos XML
+    - name: Baixar arquivos XML EPG
       run: |
-        wget -O epg.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/epg.xml
-        wget -O claro.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/claro.xml
-        wget -O globo.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/globo.xml
-        wget -O vivoplay.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/vivoplay.xml
+        curl -sLo epg.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/epg.xml
+        curl -sLo claro.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/claro.xml
+        curl -sLo globo.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/globo.xml
+        curl -sLo vivoplay.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/vivoplay.xml
 
-    - name: Unir EPG removendo canais duplicados
+    - name: Merge XML EPG sem canais duplicados
       run: |
         echo '<?xml version="1.0" encoding="utf-8"?>' > epg-final.xml
         echo '<!DOCTYPE tv SYSTEM "xmltv.dtd">' >> epg-final.xml
@@ -33,20 +33,19 @@ jobs:
         touch canais_ids.txt
 
         for file in epg.xml claro.xml globo.xml vivoplay.xml; do
-          xmlstarlet sel -t -m "//channel" -c . -n "$file" | while IFS= read -r channel; do
-            channel_id=$(echo "$channel" | xmlstarlet fo 2>/dev/null | xmlstarlet sel -t -v "//channel/@id" 2>/dev/null)
-            if [ -n "$channel_id" ] && ! grep -Fxq "$channel_id" canais_ids.txt; then
-              echo "$channel" >> epg-final.xml
-              echo "$channel_id" >> canais_ids.txt
+          ids=$(xmlstarlet sel -t -m "//channel" -v "@id" -n "$file")
+          for id in $ids; do
+            if ! grep -Fxq "$id" canais_ids.txt; then
+              xmlstarlet sel -t -m "//channel[@id='$id']" -c . -n "$file" >> epg-final.xml
+              echo "$id" >> canais_ids.txt
             fi
           done
         done
 
         for file in epg.xml claro.xml globo.xml vivoplay.xml; do
-          xmlstarlet sel -t -m "//programme" -c . -n "$file" | while IFS= read -r prog; do
-            channel_prog=$(echo "$prog" | xmlstarlet fo 2>/dev/null | xmlstarlet sel -t -v "//programme/@channel" 2>/dev/null)
-            if [ -n "$channel_prog" ] && grep -Fxq "$channel_prog" canais_ids.txt; then
-              echo "$prog" >> epg-final.xml
+          xmlstarlet sel -t -m "//programme[@channel]" -v "@channel" -n "$file" | sort -u | while read -r ch; do
+            if grep -Fxq "$ch" canais_ids.txt; then
+              xmlstarlet sel -t -m "//programme[@channel='$ch']" -c . -n "$file" >> epg-final.xml
             fi
           done
         done
@@ -55,15 +54,11 @@ jobs:
 
         rm canais_ids.txt
 
-    - name: Commitar e enviar epg-final.xml atualizado
+    - name: Commit e push do arquivo atualizado
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-
         git add epg-final.xml
-        if git diff --cached --quiet; then
-          echo "Nenhuma mudança no epg-final.xml"
-        else
-          git commit -m "Atualizar epg-final.xml automaticamente"
-          git push
-        fi
+        git commit -m "Atualização diária do EPG merge sem canais duplicados"
+        git push
+      continue-on-error: true
