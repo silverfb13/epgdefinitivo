@@ -1,64 +1,62 @@
-name: Atualizar EPG merge diário
+name: Gerar EPG Final Sem Canais Duplicados
 
 on:
   schedule:
-    # A cada 6 horas: 0,6,12,18
-    - cron: '0 */6 * * *'
+    - cron: '0 */6 * * *'  # A cada 6 horas, nos minutos 00
   workflow_dispatch:
 
 jobs:
-  merge-epg:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v3
+      - name: Clonar o repositório
+        uses: actions/checkout@v3
 
-    - name: Instalar xmlstarlet
-      run: sudo apt-get update && sudo apt-get install -y xmlstarlet
+      - name: Instalar xmlstarlet
+        run: sudo apt-get install -y xmlstarlet
 
-    - name: Baixar arquivos XML EPG
-      run: |
-        curl -sLo epg.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/epg.xml
-        curl -sLo claro.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/claro.xml
-        curl -sLo globo.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/globo.xml
-        curl -sLo vivoplay.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/vivoplay.xml
+      - name: Baixar os arquivos EPG
+        run: |
+          curl -L -o epg.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/epg.xml
+          curl -L -o claro.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/claro.xml
+          curl -L -o globo.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/globo.xml
+          curl -L -o vivoplay.xml https://raw.githubusercontent.com/limaalef/BrazilTVEPG/main/vivoplay.xml
 
-    - name: Merge XML EPG sem canais duplicados
-      run: |
-        echo '<?xml version="1.0" encoding="utf-8"?>' > epg-final.xml
-        echo '<!DOCTYPE tv SYSTEM "xmltv.dtd">' >> epg-final.xml
-        echo '<tv generator-info-name="PAINEL UHD">' >> epg-final.xml
+      - name: Gerar epg-final.xml sem canais duplicados
+        run: |
+          echo '<?xml version="1.0" encoding="utf-8"?>' > epg-final.xml
+          echo '<!DOCTYPE tv SYSTEM "xmltv.dtd">' >> epg-final.xml
+          echo '<tv generator-info-name="PAINEL UHD">' >> epg-final.xml
 
-        touch canais_ids.txt
+          touch canais_ids.txt
 
-        for file in epg.xml claro.xml globo.xml vivoplay.xml; do
-          ids=$(xmlstarlet sel -t -m "//channel" -v "@id" -n "$file")
-          for id in $ids; do
-            if ! grep -Fxq "$id" canais_ids.txt; then
-              xmlstarlet sel -t -m "//channel[@id='$id']" -c . -n "$file" >> epg-final.xml
-              echo "$id" >> canais_ids.txt
-            fi
+          # Parte 1: Adicionar canais únicos
+          for file in epg.xml claro.xml globo.xml vivoplay.xml; do
+            xmlstarlet sel -t -m "//channel" -v "@id" -n "$file" | while IFS= read -r id; do
+              if [ -n "$id" ] && ! grep -Fxq "$id" canais_ids.txt; then
+                xmlstarlet sel -t -m "//channel[@id='$id']" -c . -n "$file" >> epg-final.xml
+                echo "$id" >> canais_ids.txt
+              fi
+            done
           done
-        done
 
-        for file in epg.xml claro.xml globo.xml vivoplay.xml; do
-          xmlstarlet sel -t -m "//programme[@channel]" -v "@channel" -n "$file" | sort -u | while read -r ch; do
-            if grep -Fxq "$ch" canais_ids.txt; then
-              xmlstarlet sel -t -m "//programme[@channel='$ch']" -c . -n "$file" >> epg-final.xml
-            fi
+          # Parte 2: Adicionar programmes apenas dos canais já adicionados
+          for file in epg.xml claro.xml globo.xml vivoplay.xml; do
+            xmlstarlet sel -t -m "//programme[@channel]" -v "@channel" -n "$file" | sort -u | while IFS= read -r ch; do
+              if [ -n "$ch" ] && grep -Fxq "$ch" canais_ids.txt; then
+                xmlstarlet sel -t -m "//programme[@channel='$ch']" -c . -n "$file" >> epg-final.xml
+              fi
+            done
           done
-        done
 
-        echo '</tv>' >> epg-final.xml
+          echo '</tv>' >> epg-final.xml
+          rm canais_ids.txt
 
-        rm canais_ids.txt
-
-    - name: Commit e push do arquivo atualizado
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add epg-final.xml
-        git commit -m "Atualização diária do EPG merge sem canais duplicados"
-        git push
-      continue-on-error: true
+      - name: Commit e push do epg-final.xml
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Actions"
+          git add epg-final.xml
+          git commit -m "Atualização automática do EPG final (sem canais duplicados)" || echo "Nenhuma alteração para commitar"
+          git push
