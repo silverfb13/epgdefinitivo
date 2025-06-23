@@ -2,7 +2,7 @@ name: Gerar EPG Final Sem Canais Duplicados
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # A cada 6 horas, sempre no minuto 00
+    - cron: '0 */6 * * *'  # A cada 6 horas
   workflow_dispatch:
 
 jobs:
@@ -35,30 +35,35 @@ jobs:
           for file in epg.xml claro.xml globo.xml vivoplay.xml; do
             xmlstarlet sel -t -m "//channel" -v "@id" -n "$file" | while IFS= read -r id; do
               if [ -n "$id" ] && ! grep -Fxq "$id" canais_ids.txt; then
-                xmlstarlet sel -t -m "//channel[@id='$id']" -c . "$file" >> epg-final.xml
-                echo "" >> epg-final.xml  # Adicionar quebra de linha entre os channels
-                echo "$id" >> canais_ids.txt
+                # Só tenta extrair se existir
+                if xmlstarlet sel -t -c "//channel[@id='$id']" "$file" > temp_channel.xml 2>/dev/null; then
+                  cat temp_channel.xml >> epg-final.xml
+                  echo "" >> epg-final.xml
+                  echo "$id" >> canais_ids.txt
+                fi
               fi
             done
           done
 
-          # Parte 2: Adicionar programmes apenas dos canais que ficaram no epg-final.xml
+          # Parte 2: Adicionar programmes apenas dos canais únicos
           for file in epg.xml claro.xml globo.xml vivoplay.xml; do
             xmlstarlet sel -t -m "//programme" -v "@channel" -n "$file" | sort -u | while IFS= read -r channel; do
               if grep -Fxq "$channel" canais_ids.txt; then
-                xmlstarlet sel -t -m "//programme[@channel='$channel']" -c . "$file" >> epg-final.xml
-                echo "" >> epg-final.xml  # Adicionar quebra de linha entre os programmes
+                if xmlstarlet sel -t -c "//programme[@channel='$channel']" "$file" > temp_programme.xml 2>/dev/null; then
+                  cat temp_programme.xml >> epg-final.xml
+                  echo "" >> epg-final.xml
+                fi
               fi
             done
           done
 
           echo '</tv>' >> epg-final.xml
-          rm canais_ids.txt
+          rm canais_ids.txt temp_channel.xml temp_programme.xml || true
 
-      - name: Commit e push do epg-final.xml
+      - name: Commit e Push
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Actions"
           git add epg-final.xml
-          git commit -m "EPG Final gerado automaticamente (sem canais duplicados)" || echo "Nenhuma alteração para commitar"
+          git commit -m "EPG Final atualizado sem canais duplicados" || echo "Nenhuma alteração"
           git push
