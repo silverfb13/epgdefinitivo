@@ -41,11 +41,11 @@ jobs:
             done
           done
 
-          # Parte 2: Adicionar programmes apenas dos canais já adicionados
+          # Parte 2: Adicionar programmes apenas dos canais únicos
           for file in epg.xml claro.xml globo.xml vivoplay.xml; do
-            xmlstarlet sel -t -m "//programme[@channel]" -v "@channel" -n "$file" | sort -u | while IFS= read -r ch; do
-              if [ -n "$ch" ] && grep -Fxq "$ch" canais_ids.txt; then
-                xmlstarlet sel -t -m "//programme[@channel='$ch']" -c . -n "$file" >> epg-final.xml
+            xmlstarlet sel -t -m "//programme" -v "@channel" -n "$file" | sort -u | while IFS= read -r channel; do
+              if grep -Fxq "$channel" canais_ids.txt; then
+                xmlstarlet sel -t -m "//programme[@channel='$channel']" -c . -n "$file" >> epg-final.xml
               fi
             done
           done
@@ -58,5 +58,5 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Actions"
           git add epg-final.xml
-          git commit -m "Atualização automática do EPG final (sem canais duplicados)" || echo "Nenhuma alteração para commitar"
+          git commit -m "EPG Final gerado automaticamente (sem canais duplicados)" || echo "Nenhuma alteração para commitar"
           git push
